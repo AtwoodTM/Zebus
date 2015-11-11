@@ -41,21 +41,21 @@
     <Reference Include="clrzmq">
       <HintPath>..\..\lib\zmq\clrzmq.dll</HintPath>
     </Reference>
-    <Reference Include="KellermanSoftware.Compare-NET-Objects, Version=3.1.0.0, Culture=neutral, PublicKeyToken=d970ace04cc85217, processorArchitecture=MSIL">
+    <Reference Include="KellermanSoftware.Compare-NET-Objects">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\packages\CompareNETObjects.3.01.0.0\lib\net45\KellermanSoftware.Compare-NET-Objects.dll</HintPath>
+      <HintPath>..\packages\CompareNETObjects.3.03.0.0\lib\net45\KellermanSoftware.Compare-NET-Objects.dll</HintPath>
     </Reference>
     <Reference Include="log4net, Version=1.2.13.0, Culture=neutral, PublicKeyToken=669e0ddf0bb1aa2a, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\packages\log4net.2.0.3\lib\net40-full\log4net.dll</HintPath>
     </Reference>
-    <Reference Include="Moq, Version=4.2.1409.1722, Culture=neutral, PublicKeyToken=69f491c39445e920, processorArchitecture=MSIL">
+    <Reference Include="Moq">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\packages\Moq.4.2.1409.1722\lib\net40\Moq.dll</HintPath>
+      <HintPath>..\packages\Moq.4.2.1507.0118\lib\net40\Moq.dll</HintPath>
     </Reference>
-    <Reference Include="Newtonsoft.Json, Version=6.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+    <Reference Include="Newtonsoft.Json">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\packages\Newtonsoft.Json.6.0.8\lib\net45\Newtonsoft.Json.dll</HintPath>
+      <HintPath>..\packages\Newtonsoft.Json.7.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="nunit.framework">
       <HintPath>..\packages\NUnit.2.6.4\lib\nunit.framework.dll</HintPath>
@@ -64,12 +64,13 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\packages\protobuf-net.2.0.0.668\lib\net40\protobuf-net.dll</HintPath>
     </Reference>
-    <Reference Include="StructureMap, Version=3.1.4.0, Culture=neutral, processorArchitecture=MSIL">
+    <Reference Include="StructureMap">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\packages\structuremap.3.1.4.143\lib\net40\StructureMap.dll</HintPath>
+      <HintPath>..\packages\structuremap.3.1.6.186\lib\net40\StructureMap.dll</HintPath>
     </Reference>
     <Reference Include="StructureMap.Net4">
-      <HintPath>..\packages\structuremap.3.1.4.143\lib\net40\StructureMap.Net4.dll</HintPath>
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\packages\structuremap.3.1.6.186\lib\net40\StructureMap.Net4.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -128,6 +129,10 @@
     <Compile Include="MessageContextTests.cs" />
     <Compile Include="Messages\FakeCommandWithTimestamp.cs" />
     <Compile Include="Messages\FakeInfrastructureTransientCommand.cs" />
+    <Compile Include="Messages\FakeRoutableCommandWithBoolean.cs" />
+    <Compile Include="Messages\FakeRoutableCommandWithEnum.cs">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Scan\StaticAsyncMessageHandlerInvokerLoaderTests.cs" />
     <Compile Include="Scan\SyncMessageHandlerInvokerLoaderTests.cs" />
     <Compile Include="Dispatch\DispatchMessages\SyncCommandHandlerWithQueueName1.cs" />
@@ -205,6 +210,10 @@
     <ProjectReference Include="..\Abc.Zebus.Testing\Abc.Zebus.Testing.csproj">
       <Project>{4ce123df-8021-411c-929b-53e5c5fc1e04}</Project>
       <Name>Abc.Zebus.Testing</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Abc.Zebus.Tests.TestExe\Abc.Zebus.Tests.TestExe.csproj">
+      <Project>{652017d8-eb34-4a79-b14f-db0477e43915}</Project>
+      <Name>Abc.Zebus.Tests.TestExe</Name>
     </ProjectReference>
     <ProjectReference Include="..\Abc.Zebus\Abc.Zebus.csproj">
       <Project>{1f4c6307-6113-40d5-bf42-4b6bf5df13b2}</Project>

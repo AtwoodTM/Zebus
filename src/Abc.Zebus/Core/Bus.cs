@@ -30,6 +30,7 @@ namespace Abc.Zebus.Core
         private readonly IStoppingStrategy _stoppingStrategy;
         private CustomThreadPoolTaskScheduler _completionResultTaskScheduler;
         private PeerId _peerId;
+        private string _environment;
         private bool _isRunning;
  
         public Bus(ITransport transport, IPeerDirectory directory, IMessageSerializer serializer, IMessageDispatcher messageDispatcher, IStoppingStrategy stoppingStrategy)
@@ -53,6 +54,11 @@ namespace Abc.Zebus.Core
             get { return _peerId; }
         }
 
+        public string Environment
+        {
+            get { return _environment; }
+        }
+
         public bool IsRunning
         {
             get { return _isRunning; }
@@ -66,6 +72,7 @@ namespace Abc.Zebus.Core
         public void Configure(PeerId peerId, string environment)
         {
             _peerId = peerId;
+            _environment = environment;
             _transport.Configure(peerId, environment);
         }
 
@@ -76,25 +83,36 @@ namespace Abc.Zebus.Core
 
             Starting();
 
-            _completionResultTaskScheduler = new CustomThreadPoolTaskScheduler(4);
-            _logger.DebugFormat("Loading invokers...");
-            _messageDispatcher.LoadMessageHandlerInvokers();
+            var registered = false;
+            try
+            {
+                _completionResultTaskScheduler = new CustomThreadPoolTaskScheduler(4);
+                _logger.DebugFormat("Loading invokers...");
+                _messageDispatcher.LoadMessageHandlerInvokers();
 
-            PerformAutoSubscribe();
+                PerformAutoSubscribe();
 
-            _logger.DebugFormat("Starting message dispatcher...");
-            _messageDispatcher.Start();
+                _logger.DebugFormat("Starting message dispatcher...");
+                _messageDispatcher.Start();
+                
+                _logger.DebugFormat("Starting transport...");
+                _transport.Start();
 
-            _logger.DebugFormat("Starting transport...");
-            _transport.Start();
+                _isRunning = true;
 
-            _isRunning = true;
+                _logger.DebugFormat("Registering on directory...");
+                var self = new Peer(PeerId, EndPoint);
+                _directory.Register(this, self, GetSubscriptions());
+                registered = true;
 
-            _logger.DebugFormat("Registering on directory...");
-            var self = new Peer(PeerId, EndPoint);
-            _directory.Register(this, self, GetSubscriptions());
-
-            _transport.OnRegistered();
+                _transport.OnRegistered();
+            }
+            catch
+            {
+                InternalStop(registered);
+                _isRunning = false;
+                throw;
+            }
 
             Started();
         }
@@ -123,10 +141,18 @@ namespace Abc.Zebus.Core
         {
             if (!_isRunning)
                 throw new InvalidOperationException("Unable to stop, the bus is not running");
-            
+
             Stopping();
 
-            _directory.Unregister(this);
+            InternalStop(true);
+
+            Stopped();
+        }
+
+        private void InternalStop(bool unregister)
+        {
+            if (unregister)
+                _directory.Unregister(this);
 
             _stoppingStrategy.Stop(_transport, _messageDispatcher);
 
@@ -135,8 +161,6 @@ namespace Abc.Zebus.Core
             _subscriptions.Clear();
             _messageIdToTaskCompletionSources.Clear();
             _completionResultTaskScheduler.Dispose();
-
-            Stopped();
         }
 
         public void Publish(IEvent message)
@@ -268,6 +292,11 @@ namespace Abc.Zebus.Core
             });
         }
 
+        public IDisposable Subscribe(Subscription subscription, Action<IMessage> handler)
+        {
+            return Subscribe(new[] { subscription }, handler);
+        }
+
         private void EnsureMessageHandlerInvokerExists(Subscription[] subscriptions)
         {
             foreach (var subscription in subscriptions)
@@ -277,24 +306,28 @@ namespace Abc.Zebus.Core
             }
         }
 
-        private void AddSubscriptions(IEnumerable<Subscription> subscriptions)
+        private void AddSubscriptions(params Subscription[] subscriptions)
         {
+            var updatedTypes = new HashSet<MessageTypeId>();
             lock (_subscriptions)
             {
                 foreach (var subscription in subscriptions)
                 {
+                    updatedTypes.Add(subscription.MessageTypeId);
                     _subscriptions[subscription] = 1 + _subscriptions.GetValueOrDefault(subscription);
                 }
             }
-            OnSubscriptionsUpdated();
+            OnSubscriptionsUpdatedForTypes(updatedTypes);
         }
 
-        private void RemoveSubscriptions(IEnumerable<Subscription> subscriptions)
+        private void RemoveSubscriptions(params Subscription[] subscriptions)
         {
+            var updatedTypes = new HashSet<MessageTypeId>();
             lock (_subscriptions)
             {
                 foreach (var subscription in subscriptions)
                 {
+                    updatedTypes.Add(subscription.MessageTypeId);
                     var subscriptionCount = _subscriptions.GetValueOrDefault(subscription);
                     if (subscriptionCount <= 1)
                         _subscriptions.Remove(subscription);
@@ -302,12 +335,19 @@ namespace Abc.Zebus.Core
                         _subscriptions[subscription] = subscriptionCount - 1;
                 }
             }
-            OnSubscriptionsUpdated();
+            OnSubscriptionsUpdatedForTypes(updatedTypes);
         }
-
-        protected void OnSubscriptionsUpdated()
+        
+        private void OnSubscriptionsUpdatedForTypes(HashSet<MessageTypeId> updatedTypes)
         {
-            _directory.Update(this, GetSubscriptions());
+            var subscriptions = GetSubscriptions().Where(sub => updatedTypes.Contains(sub.MessageTypeId));
+            var subscriptionsByTypes = SubscriptionsForType.CreateDictionary(subscriptions);
+            
+            var subscriptionUpdates = new List<SubscriptionsForType>(updatedTypes.Count);
+            foreach (var updatedMessageId in updatedTypes)
+                subscriptionUpdates.Add(subscriptionsByTypes.GetValueOrDefault(updatedMessageId, new SubscriptionsForType(updatedMessageId)));
+            
+            _directory.UpdateSubscriptions(this, subscriptionUpdates);
         }
 
         public void Reply(int errorCode)
@@ -404,10 +444,10 @@ namespace Abc.Zebus.Core
             }
             catch (Exception ex)
             {
-                jsonMessage = string.Format("Unable to serialize message :{0}{1}", Environment.NewLine, ex);
+                jsonMessage = string.Format("Unable to serialize message :{0}{1}", System.Environment.NewLine, ex);
             }
             var errorMessages = dispatchResult.Errors.Select(error => error.ToString());
-            var errorMessage = string.Join(Environment.NewLine + Environment.NewLine, errorMessages);
+            var errorMessage = string.Join(System.Environment.NewLine + System.Environment.NewLine, errorMessages);
             var messageProcessingFailed = new MessageProcessingFailed(failingTransportMessage, jsonMessage, errorMessage, SystemDateTime.UtcNow, dispatchResult.ErrorHandlerTypes.Select(x => x.FullName).ToArray());
             var peers = _directory.GetPeersHandlingMessage(messageProcessingFailed);
             SendTransportMessage(ToTransportMessage(messageProcessingFailed, MessageId.NextId()), peers);
@@ -456,7 +496,8 @@ namespace Abc.Zebus.Core
                 if (taskCompletionSource == null)
                     return;
 
-                var commandResult = new CommandResult(dispatch.Context.ReplyCode, dispatch.Context.ReplyResponse);
+                var errorCode = dispatchResult.Errors.Any() ? CommandResult.GetErrorCode(dispatchResult.Errors) : dispatch.Context.ReplyCode;
+                var commandResult = new CommandResult(errorCode, dispatch.Context.ReplyResponse);
                 taskCompletionSource.SetResult(commandResult);
             };
         }

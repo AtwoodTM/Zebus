@@ -1,4 +1,13 @@
-﻿using System;
+﻿using Abc.Zebus.Directory;
+using Abc.Zebus.Serialization;
+using Abc.Zebus.Testing;
+using Abc.Zebus.Testing.Extensions;
+using Abc.Zebus.Tests.Messages;
+using Abc.Zebus.Transport;
+using Abc.Zebus.Util;
+using Moq;
+using NUnit.Framework;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -6,16 +15,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Abc.Zebus.Directory;
-using Abc.Zebus.Serialization;
-using Abc.Zebus.Testing;
-using Abc.Zebus.Testing.Extensions;
-using Abc.Zebus.Tests.Messages;
-using Abc.Zebus.Transport;
-using Abc.Zebus.Util;
-using Abc.Zebus.Util.Extensions;
-using Moq;
-using NUnit.Framework;
 
 namespace Abc.Zebus.Tests.Transport
 {
@@ -45,12 +44,16 @@ namespace Abc.Zebus.Tests.Transport
                 {
                 }
             }
+        }
 
-            var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-            dir.GetFiles("*.inboundport.*").ForEach(x => x.Delete());
-            var dataDir = Path.Combine(dir.FullName, "Data");
-            if (System.IO.Directory.Exists(dataDir))
-                System.IO.Directory.Delete(dataDir, true);
+        [Test]
+        public void should_not_crash_when_stopping_if_it_was_not_started()
+        {
+            var configurationMock = new Mock<IZmqTransportConfiguration>();
+            configurationMock.SetupGet(x => x.WaitForEndOfStreamAckTimeout).Returns(100.Milliseconds());
+            var transport = new ZmqTransport(configurationMock.Object, new ZmqSocketOptions());
+
+            Assert.That(transport.Stop, Throws.Nothing);
         }
 
         [Test]
@@ -151,58 +154,7 @@ namespace Abc.Zebus.Tests.Transport
             senderTransport.Send(new FakeCommand(0).ToTransportMessage(), new[] { receiver });
             Wait.Until(() => receivedMessages.Count == 2, 500.Milliseconds(), "unable to receive message");
         }
-
-        [Test]
-        public void should_save_last_endpoint()
-        {
-            const string peerId = "Abc.Peer.0";
-
-            var expectedPortFilePath = PathUtil.InBaseDirectory(Path.Combine("Data", peerId + ".inboundport.test"));
-            if (File.Exists(expectedPortFilePath))
-                File.Delete(expectedPortFilePath);
-
-            var transport = CreateAndStartZmqTransport(peerId: peerId);
-            var port = new ZmqEndPoint(transport.InboundEndPoint).GetPort();
-
-            expectedPortFilePath.ShouldExists();
-            var portFromFile = int.Parse(File.ReadAllText(expectedPortFilePath));
-            portFromFile.ShouldEqual(port);
-        }
-
-        [Test]
-        public void should_reuse_last_endpoint_port_when_available_in_current_dir()
-        {
-            const string peerId = "Abc.Peer.0";
-
-            var expectedPortFilePath = PathUtil.InBaseDirectory(peerId + ".inboundport.test");
-            var expectedPort = TcpUtil.GetRandomUnusedPort();
-
-            File.WriteAllText(expectedPortFilePath, expectedPort.ToString());
-
-            var transport = CreateAndStartZmqTransport(peerId: peerId);
-            var endpoint = new ZmqEndPoint(transport.InboundEndPoint);
-
-            endpoint.GetPort().ShouldEqual(expectedPort);
-        }
-
-        [Test]
-        public void should_reuse_last_endpoint_port_when_available_in_data_dir()
-        {
-            const string peerId = "Abc.Peer.0";
-
-            var dataDir = PathUtil.InBaseDirectory("Data");
-            System.IO.Directory.CreateDirectory(dataDir);
-            var expectedPortFilePath = Path.Combine(dataDir, peerId + ".inboundport.test");
-            var expectedPort = TcpUtil.GetRandomUnusedPort();
-
-            File.WriteAllText(expectedPortFilePath, expectedPort.ToString());
-
-            var transport = CreateAndStartZmqTransport(peerId: peerId);
-            var endpoint = new ZmqEndPoint(transport.InboundEndPoint);
-
-            endpoint.GetPort().ShouldEqual(expectedPort);
-        }
-
+       
         [Test, Repeat(10)]
         public void should_not_reuse_a_port_used_in_another_envionment()
         {
@@ -318,60 +270,32 @@ namespace Abc.Zebus.Tests.Transport
             senderTransport.SocketOptions.SendTimeout = 50.Milliseconds();
             senderTransport.SocketOptions.SendRetriesBeforeSwitchingToClosedState = 0;
 
-            var receviedMessages = new List<TransportMessage>();
-            var upReceiverTransport = CreateAndStartZmqTransport(onMessageReceived: receviedMessages.Add);
+            var receivedMessages = new List<TransportMessage>();
+            var upReceiverTransport = CreateAndStartZmqTransport(onMessageReceived: receivedMessages.Add);
             var upReceiver = new Peer(new PeerId("Abc.Testing.Receiver.Up"), upReceiverTransport.InboundEndPoint);
 
             var downReceiverTransport = CreateAndStartZmqTransport();
             var downReceiver = new Peer(new PeerId("Abc.Testing.Receiver.Down"), downReceiverTransport.InboundEndPoint);
 
+            Console.WriteLine("Stopping receiver");
+
             downReceiverTransport.Stop();
+
+            Console.WriteLine("Receiver stopped");
 
             for (var i = 1; i <= 10; ++i)
             {
+                var senderStopwatch = Stopwatch.StartNew();
                 var message = new FakeCommand(i).ToTransportMessage();
                 senderTransport.Send(message, new[] { upReceiver, downReceiver });
+                Console.WriteLine("Send a message to two peers in " + senderStopwatch.Elapsed);
             }
 
-            Wait.Until(() => receviedMessages.Count == 10, 200.Milliseconds(), "Throughput is too low");
-        }
-
-        [Test]
-        public void should_send_messages_after_closed_state_duration()
-        {
-            var senderTransport = CreateAndStartZmqTransport();
-            senderTransport.SocketOptions.SendHighWaterMark = 1;
-            senderTransport.SocketOptions.SendRetriesBeforeSwitchingToClosedState = 0;
-            senderTransport.SocketOptions.ClosedStateDuration = 200.Milliseconds();
-            senderTransport.SocketOptions.SendTimeout = 50.Milliseconds();
-
-            var receviedMessages = new List<TransportMessage>();
-            var receiverTransport = CreateAndStartZmqTransport(onMessageReceived: receviedMessages.Add);
-            var receiverId = new PeerId("Abc.Testing.Receiver.0");
-
-            receiverTransport.Stop();
-
-            // sending a few messages to switch the socket to closed state
-            for (var i = 1; i <= 5; ++i)
-            {
-                var message = new FakeCommand(i).ToTransportMessage();
-                senderTransport.Send(message, new[] { new Peer(receiverId, receiverTransport.InboundEndPoint) });
-            }
-
-            // waiting more than ClosedStateDuration
-            Thread.Sleep(250);
-
-            receiverTransport.Start();
-
-            Wait.Until(() => receviedMessages.Count == 1, 1.Seconds());
-
-            for (var i = 1; i <= 5; ++i)
-            {
-                var message = new FakeCommand(i).ToTransportMessage();
-                senderTransport.Send(message, new[] { new Peer(receiverId, receiverTransport.InboundEndPoint) });
-            }
-
-            Wait.Until(() => receviedMessages.Count == 6, 1.Seconds());
+            var receiverStopwatch = Stopwatch.StartNew();
+            Wait.Until(() => receivedMessages.Count == 10, 2.Seconds(), "Timed out while waiting for messages");
+            receiverStopwatch.Stop();
+            Console.WriteLine("Elapsed time to get messages: " + receiverStopwatch.Elapsed);
+            receiverStopwatch.ElapsedMilliseconds.ShouldBeLessOrEqualThan(200, "Throughput is too low");
         }
 
         [Test]
@@ -504,7 +428,8 @@ namespace Abc.Zebus.Tests.Transport
             }
         }
 
-        private ZmqTransport CreateAndStartZmqTransport(string endPoint = null, Action<TransportMessage> onMessageReceived = null, string peerId = "The.Peer", string environment = _environment, Func<IZmqTransportConfiguration, ZmqTransport> transportFactory = null)
+        private ZmqTransport CreateAndStartZmqTransport(string endPoint = null, Action<TransportMessage> onMessageReceived = null, string peerId = "The.Peer",
+                                                        string environment = _environment, Func<IZmqTransportConfiguration, ZmqTransport> transportFactory = null)
         {
             var configurationMock = new Mock<IZmqTransportConfiguration>();
             configurationMock.SetupGet(x => x.InboundEndPoint).Returns(endPoint);

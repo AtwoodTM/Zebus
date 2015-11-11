@@ -24,6 +24,11 @@ namespace Abc.Zebus.Core
             get { return _bus.PeerId; }
         }
 
+        public string Environment
+        {
+            get { return _bus.Environment; }
+        }
+
         public bool IsRunning
         {
             get { return _bus.IsRunning; }
@@ -76,6 +81,11 @@ namespace Abc.Zebus.Core
         public IDisposable Subscribe(Subscription[] subscriptions, Action<IMessage> handler)
         {
             return _bus.Subscribe(subscriptions, handler);
+        }
+
+        public IDisposable Subscribe(Subscription subscription, Action<IMessage> handler)
+        {
+            return _bus.Subscribe(subscription, handler);
         }
 
         public void Reply(int errorCode)

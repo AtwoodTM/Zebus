@@ -12,7 +12,7 @@ namespace Abc.Zebus.Testing.Directory
     {
         public readonly ConcurrentDictionary<PeerId, PeerDescriptor> Peers = new ConcurrentDictionary<PeerId, PeerDescriptor>();
         public Peer Self;
-        private Peer _remote = new Peer(new PeerId("remote"), "endpoint");
+        private readonly Peer _remote = new Peer(new PeerId("remote"), "endpoint");
 
         public event Action Registered = delegate { };
         public event Action<PeerId, PeerUpdateAction> PeerUpdated = delegate { };
@@ -25,14 +25,19 @@ namespace Abc.Zebus.Testing.Directory
             Registered();
         }
 
-        public void Update(IBus bus, IEnumerable<Subscription> subscriptions)
+        public void UpdateSubscriptions(IBus bus, IEnumerable<SubscriptionsForType> subscriptionsForTypes)
         {
-            Peers[Self.Id] = Self.ToPeerDescriptor(true, subscriptions);
+            var newSubscriptions = SubscriptionsForType.CreateDictionary(Peers[Self.Id].Subscriptions);
+            foreach (var subscriptionsForType in subscriptionsForTypes)
+                newSubscriptions[subscriptionsForType.MessageTypeId] = subscriptionsForType;
+            
+            Peers[Self.Id] = Self.ToPeerDescriptor(true, newSubscriptions.Values.SelectMany(subForType => subForType.ToSubscriptions()));
             PeerUpdated(Self.Id, PeerUpdateAction.Updated);
         }
 
         public void Unregister(IBus bus)
         {
+            PeerUpdated(Self.Id, PeerUpdateAction.Stopped);
         }
 
         public void RegisterRemoteListener<TMEssage>() where TMEssage : IMessage
